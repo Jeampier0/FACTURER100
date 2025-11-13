@@ -701,9 +701,9 @@
                 let data = null;
                 let errorMessage = '';
                 
-                // Método 1: API de apis.net.pe (oficial de SUNAT, más confiable)
+                // Método 1: API de apis.net.pe v2 (más reciente)
                 try {
-                    const response = await fetch(`https://api.apis.net.pe/v1/ruc?numero=${ruc}`, {
+                    const response = await fetch(`https://api.apis.net.pe/v2/sunat/ruc?numero=${ruc}`, {
                         method: 'GET',
                         headers: {
                             'Accept': 'application/json',
@@ -714,30 +714,57 @@
                     
                     if (response.ok) {
                         const result = await response.json();
-                        console.log('Respuesta API apis.net.pe:', result);
-                        if (result.razonSocial || result.nombre || result.razon_social) {
+                        console.log('Respuesta API apis.net.pe v2:', result);
+                        if (result.razonSocial || result.nombre || result.razon_social || result.nombreCompleto) {
                             data = {
-                                razonSocial: result.razonSocial || result.nombre || result.razon_social || '',
-                                direccion: result.direccion || result.direccionCompleta || result.domicilioFiscal || result.direccion_completa || ''
+                                razonSocial: result.razonSocial || result.nombre || result.razon_social || result.nombreCompleto || '',
+                                direccion: result.direccion || result.direccionCompleta || result.domicilioFiscal || result.direccion_completa || (result.direccionFiscal && result.direccionFiscal.direccion) || ''
                             };
-                            console.log('Datos encontrados:', data);
+                            console.log('✅ Datos encontrados (apis.net.pe v2):', data);
                         }
                     } else {
-                        const errorText = await response.text();
-                        console.log('Error respuesta:', response.status, errorText);
-                        errorMessage = `Error ${response.status}: ${response.statusText}`;
+                        console.log('Error apis.net.pe v2:', response.status);
                     }
                 } catch (e) {
-                    console.log('Error con apis.net.pe:', e);
-                    errorMessage = e.message;
+                    console.log('Error con apis.net.pe v2:', e);
                 }
 
-                // Método 2: API alternativa usando proxy CORS
+                // Método 2: API de apis.net.pe v1 (versión anterior)
+                if (!data) {
+                    try {
+                        const response = await fetch(`https://api.apis.net.pe/v1/ruc?numero=${ruc}`, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Referer': 'https://apis.net.pe'
+                            },
+                            mode: 'cors'
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            console.log('Respuesta API apis.net.pe v1:', result);
+                            if (result.razonSocial || result.nombre || result.razon_social) {
+                                data = {
+                                    razonSocial: result.razonSocial || result.nombre || result.razon_social || '',
+                                    direccion: result.direccion || result.direccionCompleta || result.domicilioFiscal || result.direccion_completa || ''
+                                };
+                                console.log('✅ Datos encontrados (apis.net.pe v1):', data);
+                            }
+                        } else {
+                            const errorText = await response.text();
+                            console.log('Error respuesta v1:', response.status, errorText);
+                        }
+                    } catch (e) {
+                        console.log('Error con apis.net.pe v1:', e);
+                    }
+                }
+
+                // Método 3: API usando proxy allorigins (para evitar CORS)
                 if (!data && ruc.length === 11) {
                     try {
-                        // Usar un proxy CORS para evitar problemas
-                        const proxyUrl = `https://cors-anywhere.herokuapp.com/https://www.sunat.gob.pe/a/txt/txtSriotipo?accion=consPorRuc&nroRuc=${ruc}`;
-                        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://www.sunat.gob.pe/a/txt/txtSriotipo?accion=consPorRuc&nroRuc=${ruc}`)}`, {
+                        const sunatUrl = `https://www.sunat.gob.pe/a/txt/txtSriotipo?accion=consPorRuc&nroRuc=${ruc}`;
+                        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(sunatUrl)}`, {
                             method: 'GET',
                             headers: {
                                 'Accept': 'application/json'
@@ -747,23 +774,26 @@
                         if (response.ok) {
                             const result = await response.json();
                             const content = result.contents || result.data || '';
-                            // Parsear respuesta de SUNAT (formato texto)
+                            console.log('Respuesta proxy SUNAT:', content.substring(0, 200));
+                            
+                            // Parsear respuesta de SUNAT (formato: RUC|RAZON_SOCIAL|DIRECCION|...)
                             if (content && content.includes('|')) {
                                 const parts = content.split('|');
-                                if (parts.length > 1) {
+                                if (parts.length > 1 && parts[1] && parts[1].trim() !== '') {
                                     data = {
-                                        razonSocial: parts[1] || parts[0] || '',
-                                        direccion: parts[2] || ''
+                                        razonSocial: parts[1].trim(),
+                                        direccion: (parts[2] || '').trim()
                                     };
+                                    console.log('✅ Datos encontrados (proxy SUNAT):', data);
                                 }
                             }
                         }
                     } catch (e) {
-                        console.log('Error con proxy:', e);
+                        console.log('Error con proxy SUNAT:', e);
                     }
                 }
 
-                // Método 3: API de consulta RUC alternativa
+                // Método 4: API alternativa ruc.com.pe
                 if (!data) {
                     try {
                         const response = await fetch(`https://ruc.com.pe/api/beta/ruc?numero=${ruc}&token=demo`, {
@@ -782,6 +812,7 @@
                                     razonSocial: result.razonSocial || result.nombre || result.razon_social || '',
                                     direccion: result.direccion || result.direccionCompleta || result.direccion_completa || ''
                                 };
+                                console.log('✅ Datos encontrados (ruc.com.pe):', data);
                             }
                         }
                     } catch (e) {
@@ -789,7 +820,38 @@
                     }
                 }
 
-                // Método 4: Si es DNI (8 dígitos)
+                // Método 5: API usando otro proxy
+                if (!data && ruc.length === 11) {
+                    try {
+                        const sunatUrl = `https://www.sunat.gob.pe/a/txt/txtSriotipo?accion=consPorRuc&nroRuc=${ruc}`;
+                        const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(sunatUrl)}`, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'text/plain'
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const content = await response.text();
+                            console.log('Respuesta corsproxy:', content.substring(0, 200));
+                            
+                            if (content && content.includes('|')) {
+                                const parts = content.split('|');
+                                if (parts.length > 1 && parts[1] && parts[1].trim() !== '') {
+                                    data = {
+                                        razonSocial: parts[1].trim(),
+                                        direccion: (parts[2] || '').trim()
+                                    };
+                                    console.log('✅ Datos encontrados (corsproxy):', data);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Error con corsproxy:', e);
+                    }
+                }
+
+                // Método 6: Si es DNI (8 dígitos)
                 if (!data && ruc.length === 8) {
                     try {
                         const response = await fetch(`https://api.reniec.cloud/dni/${ruc}`, {
@@ -809,6 +871,7 @@
                                     razonSocial: `${nombres} ${apellidos}`.trim(),
                                     direccion: result.direccion || ''
                                 };
+                                console.log('✅ Datos encontrados (DNI):', data);
                             }
                         }
                     } catch (e) {
