@@ -393,15 +393,29 @@
         <!-- Pestaña: Configuración -->
         <div id="config" class="tab-content active">
             <h2>Configuración de Credenciales SUNAT</h2>
+            <div class="disclaimer" style="background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; margin-bottom: 20px;">
+                <strong>📋 Instrucciones:</strong> Ingresa las credenciales de API que obtuviste en el portal de SUNAT (Menú SOL → Credenciales de API SUNAT). 
+                Estas credenciales son diferentes a tu usuario y contraseña SOL.
+            </div>
             <form id="config-form">
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="sunat-usuario">Usuario SOL</label>
-                        <input type="text" id="sunat-usuario" placeholder="Tu usuario SOL" required>
+                        <label for="sunat-api-id">ID de API SUNAT</label>
+                        <input type="text" id="sunat-api-id" placeholder="Tu ID de API (ej: a8485be7-fb67-41e6-9036-bc903e197cab)">
+                        <small style="color: #666; font-size: 0.9rem;">ID obtenido al registrar tu aplicación en SUNAT</small>
                     </div>
                     <div class="form-group">
-                        <label for="sunat-password">Contraseña SOL</label>
-                        <input type="password" id="sunat-password" placeholder="Tu contraseña SOL" required>
+                        <label for="sunat-api-key">Clave de API SUNAT</label>
+                        <input type="text" id="sunat-api-key" placeholder="Tu Clave de API (ej: ICn48qF1KeV5hW6opF55Mw==)">
+                        <small style="color: #666; font-size: 0.9rem;">Clave obtenida al registrar tu aplicación en SUNAT</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="sunat-usuario">Usuario SOL (Opcional - para servicios adicionales)</label>
+                        <input type="text" id="sunat-usuario" placeholder="Tu usuario SOL (si es necesario)">
+                    </div>
+                    <div class="form-group">
+                        <label for="sunat-password">Contraseña SOL (Opcional - para servicios adicionales)</label>
+                        <input type="password" id="sunat-password" placeholder="Tu contraseña SOL (si es necesario)">
                     </div>
                     <div class="form-group">
                         <label for="sunat-ruc">RUC</label>
@@ -410,9 +424,13 @@
                     <div class="form-group">
                         <label for="sunat-api-url">URL Base API SUNAT</label>
                         <input type="text" id="sunat-api-url" value="https://api.sunat.gob.pe" placeholder="URL de la API">
+                        <small style="color: #666; font-size: 0.9rem;">Usa https://api.sunat.gob.pe para producción</small>
                     </div>
                 </div>
-                <button type="button" class="btn btn-success" onclick="saveConfig()">Guardar Configuración</button>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="button" class="btn btn-success" onclick="saveConfig()">💾 Guardar Configuración</button>
+                    <button type="button" class="btn btn-info" onclick="loadExampleCredentials()">📋 Cargar Credenciales de Ejemplo</button>
+                </div>
             </form>
             <div id="config-result" class="result-area" style="display: none;"></div>
         </div>
@@ -809,6 +827,8 @@
 
         // Configuración de SUNAT
         let SUNAT_CONFIG = {
+            apiId: '',
+            apiKey: '',
             usuario: '',
             password: '',
             ruc: '10735084726',
@@ -820,7 +840,9 @@
             const saved = localStorage.getItem('sunatConfig');
             if (saved) {
                 SUNAT_CONFIG = JSON.parse(saved);
-                if (document.getElementById('sunat-usuario')) {
+                if (document.getElementById('sunat-api-id')) {
+                    document.getElementById('sunat-api-id').value = SUNAT_CONFIG.apiId || '';
+                    document.getElementById('sunat-api-key').value = SUNAT_CONFIG.apiKey || '';
                     document.getElementById('sunat-usuario').value = SUNAT_CONFIG.usuario || '';
                     document.getElementById('sunat-password').value = SUNAT_CONFIG.password || '';
                     document.getElementById('sunat-ruc').value = SUNAT_CONFIG.ruc || '10735084726';
@@ -858,6 +880,8 @@
         // Guardar configuración
         function saveConfig() {
             SUNAT_CONFIG = {
+                apiId: document.getElementById('sunat-api-id').value,
+                apiKey: document.getElementById('sunat-api-key').value,
                 usuario: document.getElementById('sunat-usuario').value,
                 password: document.getElementById('sunat-password').value,
                 ruc: document.getElementById('sunat-ruc').value,
@@ -867,19 +891,42 @@
             showResult('config-result', '✅ Configuración guardada correctamente', 'success');
         }
 
+        // Cargar credenciales de ejemplo (tus credenciales reales)
+        function loadExampleCredentials() {
+            document.getElementById('sunat-api-id').value = 'a8485be7-fb67-41e6-9036-bc903e197cab';
+            document.getElementById('sunat-api-key').value = 'ICn48qF1KeV5hW6opF55Mw==';
+            showResult('config-result', '✅ Credenciales de ejemplo cargadas. Ahora haz clic en "Guardar Configuración"', 'success');
+        }
+
         // Función genérica para llamadas a la API de SUNAT
         async function callSUNATAPI(endpoint, method = 'GET', body = null) {
-            if (!SUNAT_CONFIG.usuario || !SUNAT_CONFIG.password) {
-                throw new Error('Por favor, configure sus credenciales SUNAT primero.');
+            // Priorizar autenticación con ID y Clave de API
+            if (!SUNAT_CONFIG.apiId || !SUNAT_CONFIG.apiKey) {
+                // Si no hay ID/Clave, intentar con usuario/password
+                if (!SUNAT_CONFIG.usuario || !SUNAT_CONFIG.password) {
+                    throw new Error('Por favor, configure sus credenciales de API SUNAT (ID y Clave) en la pestaña de Configuración.');
+                }
             }
 
             const url = `${SUNAT_CONFIG.apiUrl}${endpoint}`;
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            // Autenticación: Usar ID y Clave de API si están disponibles, sino usuario/password
+            if (SUNAT_CONFIG.apiId && SUNAT_CONFIG.apiKey) {
+                // Método 1: Headers personalizados (más común en APIs modernas)
+                headers['X-API-ID'] = SUNAT_CONFIG.apiId;
+                headers['X-API-KEY'] = SUNAT_CONFIG.apiKey;
+                // Método 2: También intentar Basic Auth con ID:Clave (por si SUNAT lo requiere)
+                // headers['Authorization'] = 'Basic ' + btoa(`${SUNAT_CONFIG.apiId}:${SUNAT_CONFIG.apiKey}`);
+            } else if (SUNAT_CONFIG.usuario && SUNAT_CONFIG.password) {
+                headers['Authorization'] = 'Basic ' + btoa(`${SUNAT_CONFIG.usuario}:${SUNAT_CONFIG.password}`);
+            }
+
             const options = {
                 method: method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Basic ' + btoa(`${SUNAT_CONFIG.usuario}:${SUNAT_CONFIG.password}`)
-                }
+                headers: headers
             };
 
             if (body) {
@@ -888,7 +935,13 @@
 
             try {
                 const response = await fetch(url, options);
-                const data = await response.json();
+                let data;
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
                 return { success: response.ok, data, status: response.status };
             } catch (error) {
                 return { success: false, error: error.message };
@@ -1291,3 +1344,4 @@
     </script>
 </body>
 </html>
+
