@@ -458,17 +458,20 @@
             <div class="form-grid">
                 <div class="form-group">
                     <label for="cliente-ruc">RUC / DNI</label>
-                    <input type="text" id="cliente-ruc" placeholder="Ej: 20123456789" required onblur="consultarRUC()">
-                    <small style="color: #666; font-size: 0.9rem;">La razón social se completará automáticamente</small>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="text" id="cliente-ruc" placeholder="Ej: 20123456789" required onblur="consultarRUC()" style="flex: 1;">
+                        <button type="button" class="btn btn-info" onclick="consultarRUC()" style="padding: 10px 15px; font-size: 0.9rem;">🔍 Buscar</button>
+                    </div>
+                    <small style="color: #666; font-size: 0.9rem;">Ingrese RUC (11 dígitos) o DNI (8 dígitos) y haga clic en Buscar</small>
                 </div>
                 <div class="form-group">
                     <label for="cliente-razon-social">Razón Social / Nombres</label>
-                    <input type="text" id="cliente-razon-social" placeholder="Se completará automáticamente" required>
+                    <input type="text" id="cliente-razon-social" placeholder="Se completará automáticamente al buscar" required>
                     <div id="ruc-loading" style="display: none; color: #17a2b8; font-size: 0.9rem; margin-top: 5px;">⏳ Consultando...</div>
                 </div>
                 <div class="form-group full-width">
                     <label for="cliente-direccion">Dirección</label>
-                    <input type="text" id="cliente-direccion" placeholder="Se completará automáticamente">
+                    <input type="text" id="cliente-direccion" placeholder="Se completará automáticamente al buscar">
                 </div>
             </div>
 
@@ -670,7 +673,12 @@
             const direccionInput = document.getElementById('cliente-direccion');
             const loadingDiv = document.getElementById('ruc-loading');
             
-            const ruc = rucInput.value.trim();
+            if (!rucInput || !razonSocialInput || !loadingDiv) {
+                console.error('Elementos del formulario no encontrados');
+                return;
+            }
+            
+            const ruc = rucInput.value.trim().replace(/\D/g, ''); // Solo números
             
             // Validar que tenga al menos 8 caracteres (DNI) o 11 (RUC)
             if (ruc.length < 8) {
@@ -684,76 +692,119 @@
 
             // Mostrar indicador de carga
             loadingDiv.style.display = 'block';
+            loadingDiv.innerHTML = '⏳ Consultando...';
+            loadingDiv.style.color = '#17a2b8';
             razonSocialInput.disabled = true;
             direccionInput.disabled = true;
 
             try {
-                // Intentar múltiples APIs públicas de Perú
                 let data = null;
+                let errorMessage = '';
                 
-                // Método 1: API de apisperu.com (gratuita)
+                // Método 1: API de apis.net.pe (oficial de SUNAT, más confiable)
                 try {
                     const response = await fetch(`https://api.apis.net.pe/v1/ruc?numero=${ruc}`, {
                         method: 'GET',
                         headers: {
-                            'Accept': 'application/json'
-                        }
+                            'Accept': 'application/json',
+                            'Referer': 'https://apis.net.pe'
+                        },
+                        mode: 'cors'
                     });
                     
                     if (response.ok) {
                         const result = await response.json();
-                        if (result.razonSocial) {
+                        console.log('Respuesta API apis.net.pe:', result);
+                        if (result.razonSocial || result.nombre || result.razon_social) {
                             data = {
-                                razonSocial: result.razonSocial,
-                                direccion: result.direccion || result.direccionCompleta || ''
+                                razonSocial: result.razonSocial || result.nombre || result.razon_social || '',
+                                direccion: result.direccion || result.direccionCompleta || result.domicilioFiscal || result.direccion_completa || ''
                             };
+                            console.log('Datos encontrados:', data);
                         }
+                    } else {
+                        const errorText = await response.text();
+                        console.log('Error respuesta:', response.status, errorText);
+                        errorMessage = `Error ${response.status}: ${response.statusText}`;
                     }
                 } catch (e) {
-                    console.log('API apisperu.com no disponible, intentando otra...');
+                    console.log('Error con apis.net.pe:', e);
+                    errorMessage = e.message;
                 }
 
-                // Método 2: API alternativa (si la primera falla)
+                // Método 2: API alternativa usando proxy CORS
+                if (!data && ruc.length === 11) {
+                    try {
+                        // Usar un proxy CORS para evitar problemas
+                        const proxyUrl = `https://cors-anywhere.herokuapp.com/https://www.sunat.gob.pe/a/txt/txtSriotipo?accion=consPorRuc&nroRuc=${ruc}`;
+                        const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://www.sunat.gob.pe/a/txt/txtSriotipo?accion=consPorRuc&nroRuc=${ruc}`)}`, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'application/json'
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            const content = result.contents || result.data || '';
+                            // Parsear respuesta de SUNAT (formato texto)
+                            if (content && content.includes('|')) {
+                                const parts = content.split('|');
+                                if (parts.length > 1) {
+                                    data = {
+                                        razonSocial: parts[1] || parts[0] || '',
+                                        direccion: parts[2] || ''
+                                    };
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Error con proxy:', e);
+                    }
+                }
+
+                // Método 3: API de consulta RUC alternativa
                 if (!data) {
                     try {
                         const response = await fetch(`https://ruc.com.pe/api/beta/ruc?numero=${ruc}&token=demo`, {
                             method: 'GET',
                             headers: {
                                 'Accept': 'application/json'
-                            }
+                            },
+                            mode: 'cors'
                         });
                         
                         if (response.ok) {
                             const result = await response.json();
-                            if (result.razonSocial || result.nombre) {
+                            console.log('Respuesta ruc.com.pe:', result);
+                            if (result.razonSocial || result.nombre || result.razon_social) {
                                 data = {
-                                    razonSocial: result.razonSocial || result.nombre,
-                                    direccion: result.direccion || result.direccionCompleta || ''
+                                    razonSocial: result.razonSocial || result.nombre || result.razon_social || '',
+                                    direccion: result.direccion || result.direccionCompleta || result.direccion_completa || ''
                                 };
                             }
                         }
                     } catch (e) {
-                        console.log('API alternativa no disponible');
+                        console.log('Error con ruc.com.pe:', e);
                     }
                 }
 
-                // Método 3: Si es DNI (8 dígitos), intentar consulta básica
+                // Método 4: Si es DNI (8 dígitos)
                 if (!data && ruc.length === 8) {
-                    // Para DNI, generalmente no hay APIs públicas gratuitas confiables
-                    // Pero podemos intentar con algunas APIs de terceros
                     try {
                         const response = await fetch(`https://api.reniec.cloud/dni/${ruc}`, {
                             method: 'GET',
                             headers: {
                                 'Accept': 'application/json'
-                            }
+                            },
+                            mode: 'cors'
                         });
                         
                         if (response.ok) {
                             const result = await response.json();
                             if (result.nombres || result.nombre) {
                                 const nombres = result.nombres || result.nombre || '';
-                                const apellidos = result.apellidos || result.apellidoPaterno + ' ' + result.apellidoMaterno || '';
+                                const apellidos = result.apellidos || (result.apellidoPaterno || '') + ' ' + (result.apellidoMaterno || '');
                                 data = {
                                     razonSocial: `${nombres} ${apellidos}`.trim(),
                                     direccion: result.direccion || ''
@@ -761,15 +812,15 @@
                             }
                         }
                     } catch (e) {
-                        console.log('API de DNI no disponible');
+                        console.log('Error con API DNI:', e);
                     }
                 }
 
                 // Completar los campos si se obtuvo información
-                if (data) {
-                    razonSocialInput.value = data.razonSocial;
+                if (data && data.razonSocial) {
+                    razonSocialInput.value = data.razonSocial.trim();
                     if (data.direccion) {
-                        direccionInput.value = data.direccion;
+                        direccionInput.value = data.direccion.trim();
                     }
                     loadingDiv.innerHTML = '✅ Datos encontrados';
                     loadingDiv.style.color = '#28a745';
@@ -781,6 +832,9 @@
                 } else {
                     loadingDiv.innerHTML = '⚠️ No se encontró información. Complete manualmente.';
                     loadingDiv.style.color = '#ffc107';
+                    if (errorMessage) {
+                        console.error('Error:', errorMessage);
+                    }
                     setTimeout(() => {
                         loadingDiv.style.display = 'none';
                     }, 3000);
