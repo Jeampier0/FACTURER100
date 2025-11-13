@@ -699,29 +699,9 @@
             razonSocialInput.disabled = true;
             direccionInput.disabled = true;
 
-            // Intentar primero con API oficial de SUNAT si hay credenciales configuradas
-            if (SUNAT_CONFIG.apiId && SUNAT_CONFIG.apiKey && SUNAT_CONFIG.usuario && SUNAT_CONFIG.password) {
-                try {
-                    console.log('🔐 Intentando consulta con API oficial SUNAT OAuth2');
-                    const data = await consultarRUCConSUNAT(ruc);
-                    if (data && data.razonSocial) {
-                        razonSocialInput.value = data.razonSocial.trim();
-                        if (data.direccion) {
-                            direccionInput.value = data.direccion.trim();
-                        }
-                        loadingDiv.innerHTML = '✅ Datos encontrados (API oficial SUNAT)';
-                        loadingDiv.style.color = '#28a745';
-                        setTimeout(() => {
-                            loadingDiv.style.display = 'none';
-                        }, 2000);
-                        razonSocialInput.disabled = false;
-                        direccionInput.disabled = false;
-                        return;
-                    }
-                } catch (e) {
-                    console.log('Error con API oficial SUNAT, intentando métodos alternativos:', e);
-                }
-            }
+            // NOTA: La API oficial de SUNAT no tiene endpoint para consultar datos de contribuyente por RUC
+            // Los endpoints disponibles son para otros servicios (CPE, libros, etc.)
+            // Por lo tanto, usamos directamente los métodos alternativos (proxies públicos)
 
             try {
                 let data = null;
@@ -1220,86 +1200,12 @@
                 console.log('✅ Token obtenido exitosamente');
 
                 // Paso 2: Consultar RUC usando el token
-                // Intentar diferentes endpoints de la API de SUNAT
-                let rucData = null;
-                let consultaUrl = '';
-                
-                // Endpoint 1: API SIRE
-                consultaUrl = `https://api-sire.sunat.gob.pe/v1/contribuyente/contribuyente/${ruc}`;
-                console.log('🔍 Intentando consultar en:', consultaUrl);
-                
-                let consultaResponse = await fetch(consultaUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Accept': 'application/json'
-                    }
-                });
-
-                // Verificar si la respuesta es HTML (error 404)
-                const contentType = consultaResponse.headers.get('content-type');
-                if (contentType && contentType.includes('text/html')) {
-                    console.log('⚠️ Respuesta es HTML (error 404), intentando endpoint alternativo...');
-                    // Intentar endpoint alternativo
-                    consultaUrl = `https://api-sire.sunat.gob.pe/v1/contribuyente/controlcpe?ruc=${SUNAT_CONFIG.ruc}&tipo=01&serie=F001&numero=1`;
-                    consultaResponse = await fetch(consultaUrl, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'Accept': 'application/json'
-                        }
-                    });
-                }
-
-                if (!consultaResponse.ok) {
-                    const errorText = await consultaResponse.text();
-                    // Verificar si es HTML
-                    if (errorText.includes('<!DOCTYPE') || errorText.includes('<html')) {
-                        console.error('❌ La API devolvió HTML en lugar de JSON (página de error)');
-                        throw new Error('La API de SUNAT devolvió una página de error. Verifique el endpoint.');
-                    }
-                    console.error('Error consultando RUC:', consultaResponse.status, errorText.substring(0, 200));
-                    throw new Error(`Error al consultar RUC: ${consultaResponse.status}`);
-                }
-
-                // Verificar que la respuesta sea JSON
-                const responseText = await consultaResponse.text();
-                if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
-                    console.error('❌ La respuesta es HTML, no JSON');
-                    throw new Error('La API devolvió HTML en lugar de JSON');
-                }
-
-                try {
-                    rucData = JSON.parse(responseText);
-                } catch (e) {
-                    console.error('Error parseando JSON:', e);
-                    console.log('Respuesta recibida (primeros 500 chars):', responseText.substring(0, 500));
-                    throw new Error('La respuesta no es un JSON válido');
-                }
-
-                console.log('📋 Datos del RUC obtenidos:', rucData);
-
-                // Extraer razón social y dirección del formato de respuesta de SUNAT
-                // Limpiar cualquier HTML que pueda venir en los campos
-                const razonSocial = (rucData.razonSocial || rucData.nombre || rucData.razon_social || '').toString();
-                const direccion = (rucData.direccion || rucData.domicilioFiscal || rucData.direccion_completa || '').toString();
-                
-                // Remover cualquier HTML que pueda estar en los campos
-                const cleanText = (text) => {
-                    if (!text) return '';
-                    // Remover tags HTML
-                    let clean = text.replace(/<[^>]*>/g, '');
-                    // Remover entidades HTML
-                    clean = clean.replace(/&[^;]+;/g, '');
-                    // Remover espacios múltiples
-                    clean = clean.replace(/\s+/g, ' ').trim();
-                    return clean;
-                };
-
-                return {
-                    razonSocial: cleanText(razonSocial),
-                    direccion: cleanText(direccion)
-                };
+                // NOTA: La API oficial de SUNAT no tiene un endpoint directo para consultar datos de contribuyentes
+                // por RUC. Los endpoints disponibles son para CPE, libros, etc.
+                // Por ahora, lanzamos un error para que use los métodos alternativos
+                console.log('⚠️ La API oficial de SUNAT no tiene endpoint para consultar datos de contribuyente por RUC');
+                console.log('⚠️ Usando métodos alternativos (proxies públicos)...');
+                throw new Error('Endpoint no disponible en API oficial');
 
             } catch (error) {
                 console.error('Error en consulta oficial SUNAT:', error);
