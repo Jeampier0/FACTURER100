@@ -788,38 +788,56 @@
                             const content = result.contents || result.data || '';
                             console.log('📄 Respuesta completa proxy SUNAT (primeros 500 chars):', content.substring(0, 500));
                             
-                            // Parsear respuesta de SUNAT (formato: RUC|RAZON_SOCIAL|DIRECCION|...)
-                            if (content && typeof content === 'string' && content.includes('|')) {
+                            // CRÍTICO: Verificar que NO sea HTML
+                            if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<HTML') || content.includes('DOCTYPE HTML')) {
+                                console.log('❌ La respuesta es HTML (página de error), no datos válidos');
+                                console.log('⚠️ SUNAT está devolviendo una página de error en lugar de datos');
+                                // No intentar parsear HTML
+                            } else if (content && typeof content === 'string' && content.includes('|')) {
+                                // Verificar que el formato sea correcto (debe empezar con el RUC)
                                 const parts = content.split('|');
                                 console.log('📋 Partes parseadas (total:', parts.length, '):', parts);
                                 
-                                // Buscar la razón social (puede estar en diferentes posiciones)
-                                let razonSocial = '';
-                                let direccion = '';
+                                // El formato de SUNAT debería ser: RUC|RAZON_SOCIAL|DIRECCION|...
+                                // Verificar que la primera parte sea el RUC o un número
+                                const firstPart = parts[0] ? parts[0].trim() : '';
                                 
-                                // La razón social generalmente está en la posición 1 o 2
-                                for (let i = 1; i < Math.min(parts.length, 5); i++) {
-                                    if (parts[i] && parts[i].trim() !== '' && parts[i].trim() !== ruc && parts[i].trim().length > 3) {
-                                        razonSocial = parts[i].trim();
-                                        // La dirección generalmente está después de la razón social
-                                        if (i + 1 < parts.length && parts[i + 1]) {
-                                            direccion = parts[i + 1].trim();
+                                // Si la primera parte es el RUC o un número de 11 dígitos, es válido
+                                if (firstPart === ruc || /^\d{11}$/.test(firstPart)) {
+                                    // La razón social generalmente está en la posición 1
+                                    let razonSocial = '';
+                                    let direccion = '';
+                                    
+                                    if (parts.length > 1 && parts[1] && parts[1].trim() !== '' && parts[1].trim() !== ruc) {
+                                        razonSocial = parts[1].trim();
+                                        // Limpiar HTML si hay
+                                        razonSocial = razonSocial.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, '').trim();
+                                        
+                                        // La dirección generalmente está en la posición 2
+                                        if (parts.length > 2 && parts[2]) {
+                                            direccion = parts[2].trim();
+                                            // Limpiar HTML si hay
+                                            direccion = direccion.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, '').trim();
                                         }
-                                        break;
+                                        
+                                        // Validar que la razón social no sea HTML
+                                        if (razonSocial && !razonSocial.includes('<!DOCTYPE') && !razonSocial.includes('<html') && razonSocial.length > 3) {
+                                            data = {
+                                                razonSocial: razonSocial,
+                                                direccion: direccion
+                                            };
+                                            console.log('✅✅✅ DATOS ENCONTRADOS (proxy SUNAT allorigins):', data);
+                                        } else {
+                                            console.log('⚠️ La razón social extraída parece ser HTML o inválida');
+                                        }
+                                    } else {
+                                        console.log('⚠️ No se encontró razón social en la posición esperada');
                                     }
-                                }
-                                
-                                if (razonSocial) {
-                                    data = {
-                                        razonSocial: razonSocial,
-                                        direccion: direccion
-                                    };
-                                    console.log('✅✅✅ DATOS ENCONTRADOS (proxy SUNAT allorigins):', data);
                                 } else {
-                                    console.log('⚠️ No se pudo extraer razón social de las partes');
+                                    console.log('⚠️ El formato no es válido (primera parte no es RUC):', firstPart);
                                 }
                             } else {
-                                console.log('⚠️ La respuesta no contiene el formato esperado (sin |)');
+                                console.log('⚠️ La respuesta no contiene el formato esperado (sin | o es HTML)');
                             }
                         } else {
                             const errorText = await response.text();
@@ -870,17 +888,30 @@
                         
                         if (response.ok) {
                             const content = await response.text();
-                            console.log('Respuesta corsproxy:', content);
+                            console.log('Respuesta corsproxy (primeros 200 chars):', content.substring(0, 200));
                             
-                            if (content && content.includes('|')) {
+                            // Verificar que NO sea HTML
+                            if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<HTML')) {
+                                console.log('❌ corsproxy devolvió HTML, no datos válidos');
+                            } else if (content && content.includes('|')) {
                                 const parts = content.split('|');
                                 console.log('Partes parseadas corsproxy:', parts);
-                                if (parts.length > 1 && parts[1] && parts[1].trim() !== '' && parts[1].trim() !== ruc) {
-                                    data = {
-                                        razonSocial: parts[1].trim(),
-                                        direccion: (parts[2] || parts[3] || '').trim()
-                                    };
-                                    console.log('✅ Datos encontrados (corsproxy):', data);
+                                
+                                // Verificar formato válido
+                                const firstPart = parts[0] ? parts[0].trim() : '';
+                                if (firstPart === ruc || /^\d{11}$/.test(firstPart)) {
+                                    if (parts.length > 1 && parts[1] && parts[1].trim() !== '' && parts[1].trim() !== ruc) {
+                                        const razonSocial = parts[1].trim().replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, '').trim();
+                                        const direccion = (parts[2] || '').trim().replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, '').trim();
+                                        
+                                        if (razonSocial && !razonSocial.includes('<!DOCTYPE') && razonSocial.length > 3) {
+                                            data = {
+                                                razonSocial: razonSocial,
+                                                direccion: direccion
+                                            };
+                                            console.log('✅ Datos encontrados (corsproxy):', data);
+                                        }
+                                    }
                                 }
                             }
                         }
