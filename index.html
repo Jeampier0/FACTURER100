@@ -410,12 +410,14 @@
                         <small style="color: #666; font-size: 0.9rem;">Clave obtenida al registrar tu aplicación en SUNAT</small>
                     </div>
                     <div class="form-group">
-                        <label for="sunat-usuario">Usuario SOL (Opcional - para servicios adicionales)</label>
-                        <input type="text" id="sunat-usuario" placeholder="Tu usuario SOL (si es necesario)">
+                        <label for="sunat-usuario">Usuario SOL (Requerido para consulta RUC)</label>
+                        <input type="text" id="sunat-usuario" placeholder="Tu usuario SOL" required>
+                        <small style="color: #666; font-size: 0.9rem;">Necesario para autenticación OAuth2</small>
                     </div>
                     <div class="form-group">
-                        <label for="sunat-password">Contraseña SOL (Opcional - para servicios adicionales)</label>
-                        <input type="password" id="sunat-password" placeholder="Tu contraseña SOL (si es necesario)">
+                        <label for="sunat-password">Contraseña SOL / Clave SOL (Requerido para consulta RUC)</label>
+                        <input type="password" id="sunat-password" placeholder="Tu contraseña/clave SOL" required>
+                        <small style="color: #666; font-size: 0.9rem;">Necesario para autenticación OAuth2</small>
                     </div>
                     <div class="form-group">
                         <label for="sunat-ruc">RUC</label>
@@ -696,6 +698,30 @@
             loadingDiv.style.color = '#17a2b8';
             razonSocialInput.disabled = true;
             direccionInput.disabled = true;
+
+            // Intentar primero con API oficial de SUNAT si hay credenciales configuradas
+            if (SUNAT_CONFIG.apiId && SUNAT_CONFIG.apiKey && SUNAT_CONFIG.usuario && SUNAT_CONFIG.password) {
+                try {
+                    console.log('🔐 Intentando consulta con API oficial SUNAT OAuth2');
+                    const data = await consultarRUCConSUNAT(ruc);
+                    if (data && data.razonSocial) {
+                        razonSocialInput.value = data.razonSocial.trim();
+                        if (data.direccion) {
+                            direccionInput.value = data.direccion.trim();
+                        }
+                        loadingDiv.innerHTML = '✅ Datos encontrados (API oficial SUNAT)';
+                        loadingDiv.style.color = '#28a745';
+                        setTimeout(() => {
+                            loadingDiv.style.display = 'none';
+                        }, 2000);
+                        razonSocialInput.disabled = false;
+                        direccionInput.disabled = false;
+                        return;
+                    }
+                } catch (e) {
+                    console.log('Error con API oficial SUNAT, intentando métodos alternativos:', e);
+                }
+            }
 
             try {
                 let data = null;
@@ -1144,6 +1170,72 @@
         // ============================================
         // FUNCIONES DE SUNAT
         // ============================================
+
+        // Consultar RUC usando API oficial de SUNAT con OAuth2
+        async function consultarRUCConSUNAT(ruc) {
+            try {
+                // Paso 1: Obtener token OAuth2
+                const tokenUrl = `https://api-seguridad.sunat.gob.pe/v1/clientessol/${SUNAT_CONFIG.apiId}/oauth2/token/`;
+                
+                const tokenParams = new URLSearchParams({
+                    grant_type: 'password',
+                    scope: 'https://api-sire.sunat.gob.pe',
+                    client_id: SUNAT_CONFIG.apiId,
+                    client_secret: SUNAT_CONFIG.apiKey,
+                    username: `${SUNAT_CONFIG.ruc}${SUNAT_CONFIG.usuario}`,
+                    password: SUNAT_CONFIG.password
+                });
+
+                console.log('🔑 Obteniendo token OAuth2...');
+                const tokenResponse = await fetch(tokenUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: tokenParams
+                });
+
+                if (!tokenResponse.ok) {
+                    const errorText = await tokenResponse.text();
+                    console.error('Error obteniendo token:', tokenResponse.status, errorText);
+                    throw new Error(`Error al obtener token: ${tokenResponse.status}`);
+                }
+
+                const tokenData = await tokenResponse.json();
+                const accessToken = tokenData.access_token;
+                console.log('✅ Token obtenido exitosamente');
+
+                // Paso 2: Consultar RUC usando el token
+                const consultaUrl = `https://api-sire.sunat.gob.pe/v1/contribuyente/contribuyente/${ruc}`;
+                
+                const consultaResponse = await fetch(consultaUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!consultaResponse.ok) {
+                    const errorText = await consultaResponse.text();
+                    console.error('Error consultando RUC:', consultaResponse.status, errorText);
+                    throw new Error(`Error al consultar RUC: ${consultaResponse.status}`);
+                }
+
+                const rucData = await consultaResponse.json();
+                console.log('📋 Datos del RUC obtenidos:', rucData);
+
+                // Extraer razón social y dirección del formato de respuesta de SUNAT
+                return {
+                    razonSocial: rucData.razonSocial || rucData.nombre || rucData.razon_social || '',
+                    direccion: rucData.direccion || rucData.domicilioFiscal || rucData.direccion_completa || ''
+                };
+
+            } catch (error) {
+                console.error('Error en consulta oficial SUNAT:', error);
+                throw error;
+            }
+        }
 
         // Configuración de SUNAT
         let SUNAT_CONFIG = {
