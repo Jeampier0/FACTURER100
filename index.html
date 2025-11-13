@@ -482,6 +482,7 @@
                 <table>
                     <thead>
                         <tr>
+                            <th>Descripción</th>
                             <th>Cantidad</th>
                             <th>Valor Unitario (S/)</th>
                             <th>Subtotal (S/)</th>
@@ -920,6 +921,7 @@
             const row = document.createElement('tr');
             row.id = `item-row-${itemCount}`;
             row.innerHTML = `
+                <td><input type="text" class="item-description" placeholder="Descripción del producto/servicio" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px;"></td>
                 <td><input type="number" class="item-qty" value="1" min="1" onchange="calculateTotals()"></td>
                 <td><input type="number" class="item-price" value="0.00" step="0.01" min="0" onchange="calculateTotals()"></td>
                 <td class="item-subtotal">0.00</td>
@@ -994,12 +996,14 @@
             const preview = document.getElementById('invoice-preview');
             let itemsHtml = '';
             document.querySelectorAll('#items-table-body tr').forEach(row => {
+                const description = row.querySelector('.item-description').value || 'Producto/Servicio';
                 const qty = row.querySelector('.item-qty').value;
                 const price = parseFloat(row.querySelector('.item-price').value).toFixed(2);
                 const subtotal = parseFloat(row.querySelector('.item-subtotal').textContent).toFixed(2);
                 if(parseFloat(price) > 0) {
                     itemsHtml += `
                         <tr>
+                            <td>${escapeHtml(description)}</td>
                             <td style="text-align:center;">${qty}</td>
                             <td style="text-align:right;">${price}</td>
                             <td style="text-align:right;">${subtotal}</td>
@@ -1033,9 +1037,10 @@
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 20%;">Cantidad</th>
-                            <th style="width: 40%;">Valor Unitario (S/)</th>
-                            <th style="width: 40%;">Subtotal (S/)</th>
+                            <th style="width: 40%;">Descripción</th>
+                            <th style="width: 15%;">Cantidad</th>
+                            <th style="width: 20%;">Valor Unitario (S/)</th>
+                            <th style="width: 25%;">Subtotal (S/)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1509,10 +1514,12 @@
 
             const items = [];
             document.querySelectorAll('#items-table-body tr').forEach(row => {
+                const description = row.querySelector('.item-description').value || 'Producto/Servicio';
                 const qty = parseFloat(row.querySelector('.item-qty').value) || 0;
                 const price = parseFloat(row.querySelector('.item-price').value) || 0;
                 if (qty > 0 && price > 0) {
                     items.push({
+                        descripcion: description,
                         cantidad: qty,
                         precioUnitario: price,
                         subtotal: qty * price
@@ -1582,7 +1589,7 @@
             </cac:AlternativeConditionPrice>
         </cac:PricingReference>
         <cac:Item>
-            <cbc:Description>Producto/Servicio ${index + 1}</cbc:Description>
+            <cbc:Description>${escapeXml(item.descripcion || `Producto/Servicio ${index + 1}`)}</cbc:Description>
         </cac:Item>
         <cac:Price>
             <cbc:PriceAmount currencyID="PEN">${item.precioUnitario.toFixed(2)}</cbc:PriceAmount>
@@ -1630,6 +1637,16 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function escapeXml(text) {
+            if (!text) return '';
+            return text.toString()
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&apos;');
         }
 
         function escapeForJS(text) {
